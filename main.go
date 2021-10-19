@@ -51,7 +51,7 @@ func rgbaToPixel(r uint32, g uint32, b uint32, a uint32) Pixel {
 }
 
 func getPixels(filepath string) (Image, error) {
-	file, err := os.Open("./image.png")
+	file, err := os.Open(filepath)
 	if err != nil {
 		return nil, err
 	}
@@ -84,10 +84,10 @@ type Rect struct {
 	X2 int
 }
 
-func getDiffAreas(a, b Image) []Rect {
+func diff(a, b Image) []Rect {
 	if len(a) != len(b) || len(a[0]) != len(b[0]) {
 		log.Fatalf(
-			"getDiffAreas got images of different sizes, %dx%d vs %dx%d",
+			"diff got images of different sizes, %dx%d vs %dx%d",
 			len(a[0]), len(a), len(b[0]), len(b),
 		)
 	}
@@ -119,8 +119,7 @@ func getDiffAreas(a, b Image) []Rect {
 		dy := []int{1, -1, 0, 0}
 		dx := []int{0, 0, 1, -1}
 		for i := 0; i < len(dy); i++ {
-			y2 := y + dy[i]
-			x2 := x + dx[i]
+			x2, y2 := x+dx[i], y+dy[i]
 			if !seen[y2][x2] {
 				floodfill(x2, y2, r)
 			}
@@ -228,35 +227,37 @@ func Process(files []File, outputFolder string) error {
 			return err
 		}
 
+		var diffRegions []Rect
+
 		if i == 0 {
-			// TODO: just add the whole image.
-			lastFrame = frame
-			continue
+			region := Rect{X1: 0, Y1: 0, X2: len(frame[0]), Y2: len(frame)}
+			diffRegions = []Rect{region}
+		} else {
+			diffRegions = diff(frame, lastFrame)
 		}
 
-		diffAreas := getDiffAreas(frame, lastFrame)
-		if len(diffAreas) == 0 {
-			continue
-		}
 		lastFrame = frame
 
+		if len(diffRegions) == 0 {
+			continue
+		}
+
 		frameInfo := FrameInfo{}
-		for _, area := range diffAreas {
-			img := make(Image, area.Y2-area.Y1)
+		for _, region := range diffRegions {
+			frameInfo.Changes = append(frameInfo.Changes, Change{
+				X:  region.X1,
+				Y:  region.Y1,
+				ID: len(images),
+			})
+
+			img := make(Image, region.Y2-region.Y1)
 			for y := range img {
-				img[y] = make([]Pixel, area.X2-area.X1)
-				for x := area.X1; x < area.X2; x++ {
-					img[y][x] = frame[area.Y1+y][area.X1+x]
+				img[y] = make([]Pixel, region.X2-region.X1)
+				for x := region.X1; x < region.X2; x++ {
+					img[y][x] = frame[region.Y1+y][region.X1+x]
 				}
 			}
-
-			id := len(images)
 			images = append(images, img)
-			frameInfo.Changes = append(frameInfo.Changes, Change{
-				X:  area.X1,
-				Y:  area.Y1,
-				ID: id,
-			})
 		}
 		frames = append(frames, frameInfo)
 	}
@@ -336,11 +337,7 @@ func main() {
 	}
 
 	sort.Slice(allFiles, func(i, j int) bool {
-		a := allFiles[i]
-		b := allFiles[j]
-		return a.Timestamp < b.Timestamp
+		return allFiles[i].Timestamp < allFiles[j].Timestamp
 	})
-
-	// TODO: customize "output" with a flag
 	Process(allFiles, "output")
 }
