@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"io/ioutil"
 	"log"
+	"math"
 	"os"
 	"os/exec"
 	"path"
@@ -27,10 +28,12 @@ func takeScreenshots(stop chan bool, ssfolder string) {
 		select {
 		case <-stop:
 			return
+		default:
 		}
 
 		filename := path.Join(ssfolder, fmt.Sprintf("%d.png", time.Now().UnixMilli()))
-		cmd := exec.Command("screencapture", "-o", fmt.Sprintf("-l%s", *flagWindowId), "-x", filename)
+		args := []string{"-o", fmt.Sprintf("-l%s", *flagWindowId), "-x", filename}
+		cmd := exec.Command("screencapture", args...)
 		cmd.Start()
 
 		time.Sleep(time.Millisecond * time.Duration(*flagDelay))
@@ -96,8 +99,20 @@ func diff(a, b Image) []Rect {
 	h := len(a)
 
 	seen := make([][]bool, h)
-	for i := range seen {
-		seen[i] = make([]bool, w)
+	for y := range seen {
+		seen[y] = make([]bool, w)
+	}
+
+	areDifferent := func(x, y int) bool {
+		pa := a[y][x]
+		pb := b[y][x]
+
+		distance := math.Abs(float64(pa.R-pb.R)) +
+			math.Abs(float64(pa.G-pb.G)) +
+			math.Abs(float64(pa.B-pb.B)) +
+			math.Abs(float64(pa.A-pb.A))
+
+		return distance > 6 // random number lol
 	}
 
 	var floodfill func(x, y int, r *Rect)
@@ -120,8 +135,10 @@ func diff(a, b Image) []Rect {
 		dx := []int{0, 0, 1, -1}
 		for i := 0; i < len(dy); i++ {
 			x2, y2 := x+dx[i], y+dy[i]
-			if !seen[y2][x2] {
-				floodfill(x2, y2, r)
+			if 0 <= x2 && x2 < w && 0 <= y2 && y2 < h {
+				if areDifferent(x2, y2) && !seen[y2][x2] {
+					floodfill(x2, y2, r)
+				}
 			}
 		}
 	}
@@ -129,7 +146,7 @@ func diff(a, b Image) []Rect {
 	rects := []Rect{}
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			if !seen[y][x] {
+			if areDifferent(x, y) && !seen[y][x] {
 				r := Rect{Y1: y, X1: x, Y2: y, X2: x}
 				floodfill(x, y, &r)
 				rects = append(rects, r)
@@ -222,6 +239,8 @@ func Process(files []File, outputFolder string) error {
 
 	var lastFrame [][]Pixel
 	for i, file := range files {
+		log.Printf("%d) %s", i, file.Path)
+
 		frame, err := getPixels(file.Path)
 		if err != nil {
 			return err
@@ -230,10 +249,29 @@ func Process(files []File, outputFolder string) error {
 		var diffRegions []Rect
 
 		if i == 0 {
-			region := Rect{X1: 0, Y1: 0, X2: len(frame[0]), Y2: len(frame)}
+			region := Rect{X1: 0, Y1: 0, X2: len(frame[0]) - 1, Y2: len(frame) - 1}
 			diffRegions = []Rect{region}
 		} else {
 			diffRegions = diff(frame, lastFrame)
+			if len(diffRegions) > 50 {
+				// if we have a fuckload of tiny regions, just combine into one region
+				superRegion := diffRegions[0]
+				for _, region := range diffRegions {
+					if region.X1 < superRegion.X1 {
+						superRegion.X1 = region.X1
+					}
+					if region.X2 > superRegion.X2 {
+						superRegion.X2 = region.X2
+					}
+					if region.Y1 < superRegion.Y1 {
+						superRegion.Y1 = region.Y1
+					}
+					if region.Y2 > superRegion.Y2 {
+						superRegion.Y2 = region.Y2
+					}
+				}
+				diffRegions = []Rect{superRegion}
+			}
 		}
 
 		lastFrame = frame
@@ -242,18 +280,28 @@ func Process(files []File, outputFolder string) error {
 			continue
 		}
 
+		log.Printf("found %d regions", len(diffRegions))
+
 		frameInfo := FrameInfo{}
-		for _, region := range diffRegions {
+		for i, region := range diffRegions {
+			if i < 20 {
+				log.Printf(
+					"region found: top = %d, left = %d, right = %d, bottom = %d",
+					region.Y1, region.X1, region.X2, region.Y2,
+				)
+			}
+
 			frameInfo.Changes = append(frameInfo.Changes, Change{
 				X:  region.X1,
 				Y:  region.Y1,
 				ID: len(images),
 			})
 
-			img := make(Image, region.Y2-region.Y1)
+			img := make(Image, region.Y2-region.Y1+1)
 			for y := range img {
-				img[y] = make([]Pixel, region.X2-region.X1)
-				for x := region.X1; x < region.X2; x++ {
+				w := region.X2 - region.X1 + 1
+				img[y] = make([]Pixel, w)
+				for x := 0; x < w; x++ {
 					img[y][x] = frame[region.Y1+y][region.X1+x]
 				}
 			}
@@ -265,6 +313,8 @@ func Process(files []File, outputFolder string) error {
 	if err := os.MkdirAll(outputFolder, 0700); err != nil {
 		return err
 	}
+
+	log.Printf("gathered %d images", len(images))
 
 	ip := &ImagePacker{
 		Images:  images,
@@ -295,15 +345,16 @@ func main() {
 	}
 
 	ssfolder, err := ioutil.TempDir("", "cpcast_screenshots")
+	fmt.Printf("%s\n", ssfolder)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.RemoveAll(ssfolder)
+	// defer os.RemoveAll(ssfolder)
 
 	done := make(chan bool)
 	go takeScreenshots(done, ssfolder)
 
-	fmt.Printf("press enter to stop")
+	log.Printf("press enter to stop")
 	fmt.Scanln()
 	done <- true
 
