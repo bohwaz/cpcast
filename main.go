@@ -165,17 +165,6 @@ type Sprite struct {
 	X2 int `json:"x2"`
 }
 
-type Change struct {
-	ID int `json:"id"`
-	X  int `json:"x"`
-	Y  int `json:"y"`
-}
-
-type FrameInfo struct {
-	Timestamp int      `json:"timestamp"`
-	Changes   []Change `json:"changes"`
-}
-
 type ImagePacker struct {
 	Images  []Image
 	Sprites []*Sprite
@@ -233,110 +222,6 @@ type File struct {
 	Timestamp int
 }
 
-func Process(files []File, outputFolder string) error {
-	images := []Image{}
-	frames := []FrameInfo{}
-
-	var lastFrame [][]Pixel
-	for i, file := range files {
-		log.Printf("%d) %s", i, file.Path)
-
-		frame, err := getPixels(file.Path)
-		if err != nil {
-			return err
-		}
-
-		var diffRegions []Rect
-
-		if i == 0 {
-			region := Rect{X1: 0, Y1: 0, X2: len(frame[0]) - 1, Y2: len(frame) - 1}
-			diffRegions = []Rect{region}
-		} else {
-			diffRegions = diff(frame, lastFrame)
-			if len(diffRegions) > 50 {
-				// if we have a fuckload of tiny regions, just combine into one region
-				superRegion := diffRegions[0]
-				for _, region := range diffRegions {
-					if region.X1 < superRegion.X1 {
-						superRegion.X1 = region.X1
-					}
-					if region.X2 > superRegion.X2 {
-						superRegion.X2 = region.X2
-					}
-					if region.Y1 < superRegion.Y1 {
-						superRegion.Y1 = region.Y1
-					}
-					if region.Y2 > superRegion.Y2 {
-						superRegion.Y2 = region.Y2
-					}
-				}
-				diffRegions = []Rect{superRegion}
-			}
-		}
-
-		lastFrame = frame
-
-		if len(diffRegions) == 0 {
-			continue
-		}
-
-		log.Printf("found %d regions", len(diffRegions))
-
-		frameInfo := FrameInfo{}
-		for i, region := range diffRegions {
-			if i < 20 {
-				log.Printf(
-					"region found: top = %d, left = %d, right = %d, bottom = %d",
-					region.Y1, region.X1, region.X2, region.Y2,
-				)
-			}
-
-			frameInfo.Changes = append(frameInfo.Changes, Change{
-				X:  region.X1,
-				Y:  region.Y1,
-				ID: len(images),
-			})
-
-			img := make(Image, region.Y2-region.Y1+1)
-			for y := range img {
-				w := region.X2 - region.X1 + 1
-				img[y] = make([]Pixel, w)
-				for x := 0; x < w; x++ {
-					img[y][x] = frame[region.Y1+y][region.X1+x]
-				}
-			}
-			images = append(images, img)
-		}
-		frames = append(frames, frameInfo)
-	}
-
-	if err := os.MkdirAll(outputFolder, 0700); err != nil {
-		return err
-	}
-
-	log.Printf("gathered %d images", len(images))
-
-	ip := &ImagePacker{
-		Images:  images,
-		Sprites: []*Sprite{},
-	}
-
-	if err := ip.CreateImage(path.Join(outputFolder, "spritesheet.png")); err != nil {
-		return err
-	}
-
-	output := map[string]interface{}{
-		"frames":  frames,
-		"sprites": ip.Sprites,
-	}
-
-	data, err := json.Marshal(output)
-	if err != nil {
-		return err
-	}
-	return ioutil.WriteFile(path.Join(outputFolder, "data.json"), data, 0644)
-}
-
 func main() {
 	flag.Parse()
 
@@ -390,5 +275,133 @@ func main() {
 	sort.Slice(allFiles, func(i, j int) bool {
 		return allFiles[i].Timestamp < allFiles[j].Timestamp
 	})
-	Process(allFiles, "output")
+
+	images := []Image{}
+
+	type Change struct {
+		ID int `json:"-"`
+		X  int `json:"x"`
+		Y  int `json:"y"`
+		X1 int `json:"x1"`
+		Y1 int `json:"y1"`
+		X2 int `json:"x2"`
+		Y2 int `json:"y2"`
+	}
+
+	type FrameInfo struct {
+		Timestamp int      `json:"timestamp"`
+		Changes   []Change `json:"changes"`
+	}
+
+	frames := []FrameInfo{}
+
+	var lastFrame [][]Pixel
+	for i, file := range allFiles {
+		log.Printf("%d) %s", i, file.Path)
+
+		frame, err := getPixels(file.Path)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		var diffRegions []Rect
+
+		if i == 0 {
+			region := Rect{X1: 0, Y1: 0, X2: len(frame[0]) - 1, Y2: len(frame) - 1}
+			diffRegions = []Rect{region}
+		} else {
+			diffRegions = diff(frame, lastFrame)
+			if len(diffRegions) > 50 {
+				// if we have a fuckload of tiny regions, just combine into one region
+				superRegion := diffRegions[0]
+				for _, region := range diffRegions {
+					if region.X1 < superRegion.X1 {
+						superRegion.X1 = region.X1
+					}
+					if region.X2 > superRegion.X2 {
+						superRegion.X2 = region.X2
+					}
+					if region.Y1 < superRegion.Y1 {
+						superRegion.Y1 = region.Y1
+					}
+					if region.Y2 > superRegion.Y2 {
+						superRegion.Y2 = region.Y2
+					}
+				}
+				diffRegions = []Rect{superRegion}
+			}
+		}
+
+		lastFrame = frame
+
+		if len(diffRegions) == 0 {
+			continue
+		}
+
+		log.Printf("found %d regions", len(diffRegions))
+
+		frameInfo := FrameInfo{}
+		for i, region := range diffRegions {
+			// print out first 20 regions to get a sense
+			if i < 20 {
+				log.Printf(
+					"region found: top = %d, left = %d, right = %d, bottom = %d",
+					region.Y1, region.X1, region.X2, region.Y2,
+				)
+			}
+
+			frameInfo.Changes = append(frameInfo.Changes, Change{
+				X:  region.X1,
+				Y:  region.Y1,
+				ID: len(images),
+			})
+
+			img := make(Image, region.Y2-region.Y1+1)
+			for y := range img {
+				w := region.X2 - region.X1 + 1
+				img[y] = make([]Pixel, w)
+				for x := 0; x < w; x++ {
+					img[y][x] = frame[region.Y1+y][region.X1+x]
+				}
+			}
+			images = append(images, img)
+		}
+		frames = append(frames, frameInfo)
+	}
+
+	if err := os.MkdirAll("output", 0700); err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("gathered %d images", len(images))
+
+	ip := &ImagePacker{
+		Images:  images,
+		Sprites: []*Sprite{},
+	}
+
+	if err := ip.CreateImage("output/spritesheet.png"); err != nil {
+		log.Fatal(err)
+	}
+
+	for _, frame := range frames {
+		for _, change := range frame.Changes {
+			sprite := ip.Sprites[change.ID]
+			change.X1 = sprite.X1
+			change.Y1 = sprite.Y1
+			change.X2 = sprite.X2
+			change.Y2 = sprite.Y2
+		}
+	}
+
+	data, err := json.Marshal(frames)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := ioutil.WriteFile("output/data.json", data, 0644); err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("done!")
 }
