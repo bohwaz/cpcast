@@ -23,7 +23,7 @@ that high.
 
 I couldn't get scipy to install on my M1 Macbook to use his script (not making
 this up, by the way), so I decided to just rewrite the project in Go. This
-program relies almost solely on the standard library and is <400loc.
+program relies almost solely on the standard library and is ~<400loc~ <500loc.
 
 ## Examples
 
