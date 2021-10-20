@@ -45,11 +45,10 @@ Currently only works on macOS as I'm using `screencapture` to take screenshots.
  * Run this command to start recording:
 
    ```
-   go run main.go -windowid=<your window id> -delay=250 -output=./output
+   go run main.go -windowid=<your window id> -delay=100 -output=./output
    ```
 
-   Fill in your window ID. Replace `-delay` is the time between frames (ms). If
-   you want 10 fps, change it to `-delay=100`, etc.
+   Fill in your window ID. Replace `-delay` with the time between frames (ms).
 
  * Go over to your app, do what you want to do. When you're done, come back to
    your terminal and press Enter.
