@@ -2,84 +2,92 @@
 
 ## Overview/Rationale
 
-I'm building an [IDE for Go](https://codeperfect95.com) and needed to record
-some screencasts. Unfortunately, I couldn't find any good ways to do this.
-Gifs have terrible quality. Videos are too big.
+I needed to record screencasts for [CodePerfect](https://codeperfect95.com) and
+found that Sublime Text's website does screencasts in a cool way. The problem
+with screencasts is, gifs have bad quality and videos are too big. Sublime's
+[solution](https://github.com/sublimehq/anim_encoder) is to:
 
-Then I found a cool project called
-[anim\_encoder](https://github.com/sublimehq/anim_encoder) written by Sublime
-Text's creator for his website. It:
+ * capture a bunch of frames
+ * find the differing regions between frames
+ * save each differing region as a new image
+ * combine all the images into a spritesheet
+ * output a list of frames, where each frame is a list of "draw this sprite at
+   (x, y) at this time" commands
 
- * Captures a bunch of frames
- * Calculates the differing regions between frames
- * Saves each differing region as a new image
- * Combines all the images into a spritesheet
- * Outputs a list of frames, where each frame is a list of "draw this sprite at
-   x, y" commands
+Then they render the video/animation in realtime. If you inspect the screencast
+on their website you'll see it's just a canvas being drawn to.
 
-Then he uses JavaScript to "render" the video/animation in realtime. This is
-how the screencast on Sublime Text's website is done. If you inspect it you'll
-see that it's just a canvas.
+This technique is great for programming screencasts, where you want high visual
+quality, but not much changes between frames, and your FPS doesn't need to be
+that high.
 
-This technique is really good for screencasts, where you want high quality, but
-not much changes between frames, and your FPS doesn't need to be that high.
+I couldn't get scipy to install on my M1 Macbook to use his script (not making
+this up, by the way), so I decided to just rewrite the project in Go. This
+program relies almost solely on the standard library and is <400loc.
 
-Unfortunately, modern software sucks, package managers are dumb, and I couldn't
-get scipy to install on my M1 Macbook on Big Sur to use his script. So I
-decided to just rewrite the project in Go.
+## Examples
 
-This program relies almost solely on the standard library and is <400loc.
+You can see this in action [here](https://codeperfect95.com) (the screencasts
+on the homepage).
+
+The Sublime Text [website](https://sublimetext.com) uses the same technique,
+though of course not my library.
 
 ## Usage
 
 Currently only works on macOS as I'm using `screencapture` to take screenshots.
 
- * Install [GetWindowID](https://github.com/smokris/GetWindowID).
-
  * Clone this repo and run `go mod tidy`.
 
- * Open the app you want to record. Use `GetWindowID` to get the window ID of your app:
+ * Use [`GetWindowID`](https://github.com/smokris/GetWindowID) to get the
+   window ID of your app.
+
+ * Run this command to start recording:
 
    ```
-   GetWindowID <app name> --list
+   go run main.go -windowid=<your window id> -delay=250 -output=./output
    ```
-   (for example, to record TextEdit.app, `<app name>` would be `TextEdit`)
 
- * Take note of your app's window ID, then run:
-
-   ```
-   go run main.go -windowid=<your window id> -delay=250
-   ```
-   `-delay` is the time between frames (ms). If you want 10 fps, change it to
-   `-delay=100`, etc.
+   Fill in your window ID. Replace `-delay` is the time between frames (ms). If
+   you want 10 fps, change it to `-delay=100`, etc.
 
  * Go over to your app, do what you want to do. When you're done, come back to
-   your terminal, press Enter.
+   your terminal and press Enter.
 
- * This outputs: `output/spritesheet.png`, a giant spritesheet, and
+ * This creates `output/spritesheet.png`, a giant spritesheet, and
    `output/data.json`, an array of frames:
 
     ```
     [
-      {
-        "timestamp": 0,
-        "changes": [
-          {
-            "x": 0,
-            "y": 0,
-            "x1": 0,
-            "y1": 0,
-            "x2": 0,
-            "y2": 0
-          }
+      [
+        1634692991553,
+        [
+          [365, 319, 0, 1252, 35, 1302],
+          [90, 454, 35, 1252, 69, 1301],
+          [1481, 1145, 69, 1252, 117, 1293],
+          [1512, 1145, 117, 1252, 163, 1293],
+          ...
         ]
-      }
+      ],
+      ...
     ]
     ```
 
-    Each frame contains a timestamp and a list of changes. For each frame, at
-    `timestamp`, you should iterate through `changes`, grab the sprite at
-    (x1, y1, x2, y2) in the spritesheet, and draw it in your canvas at (x, y).
+    * Each frame is a [timestamp, array of changes].
 
-    You can use canvas, WebGL, plain DOM nodes, whatever you want. I'll provide
-    JavaScript samples at some point.
+    * Each change is [x, y, x1, y1, x2, y2].
+
+    * For each change, you should draw the sprite located at (x1, y1, x2, y2)
+      in the spritesheet in your canvas at (x, y).
+
+ *  It's up to you to render the animation using this information.  You can use
+    canvas, WebGL, plain DOM nodes, whatever you want.  CodePerfect uses a
+    canvas. I'll provide JavaScript samples at some point.
+
+The spritesheet is not optimized in any way; compresspng.com gave me about 50%
+compression.
+
+Custom logic is best handled in your renderer, like speeding up the video, or
+starting a few seconds into the video, e.g. to skip the part where you focus
+your app window. These things should be pretty trivial to implement in a
+handrolled renderer.
