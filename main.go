@@ -154,11 +154,8 @@ func diff(a, b Image) []Rect {
 		}
 		seen[y][x] = true
 
-		// dy := []int{1, -1, 0, 0}
-		// dx := []int{0, 0, 1, -1}
-
-		for x2 := x - 3; x2 <= x+3; x2++ {
-			for y2 := y - 3; y2 <= y+3; y2++ {
+		for x2 := x - 2; x2 <= x+2; x2++ {
+			for y2 := y - 2; y2 <= y+2; y2++ {
 				if 0 <= x2 && x2 < w && 0 <= y2 && y2 < h {
 					if areDifferent(x2, y2) && !seen[y2][x2] {
 						floodfill(x2, y2, r)
@@ -166,17 +163,6 @@ func diff(a, b Image) []Rect {
 				}
 			}
 		}
-
-		/*
-			for i := 0; i < len(dy); i++ {
-				x2, y2 := x+dx[i], y+dy[i]
-				if 0 <= x2 && x2 < w && 0 <= y2 && y2 < h {
-					if areDifferent(x2, y2) && !seen[y2][x2] {
-						floodfill(x2, y2, r)
-					}
-				}
-			}
-		*/
 	}
 
 	rects := []Rect{}
@@ -185,7 +171,7 @@ func diff(a, b Image) []Rect {
 			if areDifferent(x, y) && !seen[y][x] {
 				r := Rect{Y1: y, X1: x, Y2: y, X2: x}
 				floodfill(x, y, &r)
-				expandRect(&r, w, h, 10)
+				expandRect(&r, w, h, 4)
 				rects = append(rects, r)
 			}
 		}
@@ -254,12 +240,7 @@ func (ip *ImagePacker) CreateImage(filepath string) error {
 	return png.Encode(f, out)
 }
 
-type File struct {
-	Path      string
-	Timestamp int
-}
-
-func main() {
+func parseFlags() {
 	flag.Parse()
 
 	if *flagWindowId == "" {
@@ -271,13 +252,17 @@ func main() {
 	if *flagOutputFolder == "" {
 		log.Fatalf("-output is required and can't be 0")
 	}
+}
+
+func main() {
+	parseFlags()
 
 	ssfolder, err := ioutil.TempDir("", "cpcast_screenshots")
 	fmt.Printf("%s\n", ssfolder)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// defer os.RemoveAll(ssfolder)
+	defer os.RemoveAll(ssfolder)
 
 	done := make(chan bool)
 	go takeScreenshots(done, ssfolder)
@@ -289,6 +274,11 @@ func main() {
 	files, err := ioutil.ReadDir(ssfolder)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	type File struct {
+		Path      string
+		Timestamp int
 	}
 
 	allFiles := []File{}
@@ -340,7 +330,7 @@ func main() {
 
 	var lastFrame [][]Pixel
 	for i, file := range allFiles {
-		log.Printf("%d) %s", i, file.Path)
+		// log.Printf("%d) %s", i, file.Path)
 
 		frame, err := getPixels(file.Path)
 		if err != nil {
@@ -354,28 +344,26 @@ func main() {
 			diffRegions = []Rect{region}
 		} else {
 			diffRegions = diff(frame, lastFrame)
-			/*
-				if len(diffRegions) > 50 {
-					// if we have a fuckload of tiny regions, just combine into one region
-					superRegion := diffRegions[0]
-					for _, region := range diffRegions {
-						if region.X1 < superRegion.X1 {
-							superRegion.X1 = region.X1
-						}
-						if region.X2 > superRegion.X2 {
-							superRegion.X2 = region.X2
-						}
-						if region.Y1 < superRegion.Y1 {
-							superRegion.Y1 = region.Y1
-						}
-						if region.Y2 > superRegion.Y2 {
-							superRegion.Y2 = region.Y2
-						}
+			if len(diffRegions) > 50 {
+				// if we have a fuckload of tiny regions, just combine into one region
+				superRegion := diffRegions[0]
+				for _, region := range diffRegions {
+					if region.X1 < superRegion.X1 {
+						superRegion.X1 = region.X1
 					}
-					expandRect(&superRegion, len(frame[0]), len(frame), 10)
-					diffRegions = []Rect{superRegion}
+					if region.X2 > superRegion.X2 {
+						superRegion.X2 = region.X2
+					}
+					if region.Y1 < superRegion.Y1 {
+						superRegion.Y1 = region.Y1
+					}
+					if region.Y2 > superRegion.Y2 {
+						superRegion.Y2 = region.Y2
+					}
 				}
-			*/
+				expandRect(&superRegion, len(frame[0]), len(frame), 4)
+				diffRegions = []Rect{superRegion}
+			}
 		}
 
 		lastFrame = frame
@@ -384,20 +372,22 @@ func main() {
 			continue
 		}
 
-		log.Printf("found %d regions", len(diffRegions))
+		log.Printf("frame %d, found %d regions", i, len(diffRegions))
 
 		frameInfo := &FrameInfo{
 			Timestamp: file.Timestamp,
 		}
 
-		for i, region := range diffRegions {
+		for _, region := range diffRegions {
 			// print out first 20 regions to get a sense
-			if i < 20 {
-				log.Printf(
-					"region found: top = %d, left = %d, right = %d, bottom = %d",
-					region.Y1, region.X1, region.X2, region.Y2,
-				)
-			}
+			/*
+				if i < 20 {
+					log.Printf(
+						"region found: top = %d, left = %d, right = %d, bottom = %d",
+						region.Y1, region.X1, region.X2, region.Y2,
+					)
+				}
+			*/
 
 			frameInfo.Changes = append(frameInfo.Changes, &Change{
 				X:  region.X1,
