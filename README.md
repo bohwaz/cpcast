@@ -81,7 +81,7 @@ Currently only works on macOS as I'm using `screencapture` to take screenshots.
 
  *  It's up to you to render the animation using this information.  You can use
     canvas, WebGL, plain DOM nodes, whatever you want.  CodePerfect uses a
-    canvas. I'll provide JavaScript samples at some point.
+    canvas. Here's the code for that (with app-specific boilerplate stripped out): [link](canvas.js)
 
 The spritesheet is not optimized in any way; compresspng.com gave me about 50%
 compression.
